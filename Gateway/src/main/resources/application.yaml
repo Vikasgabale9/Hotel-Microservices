@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: APi-Gateway
+
+  cloud:
+    gateway:
+      server:
+        webflux:
+          routes:
+            - id: USERSERVICE
+              uri: lb://USERSERVICE
+              predicates:
+                - Path=/api/users/**
+
+            - id: HOTELSERVICE
+              uri: lb://HOTELSERVICE
+              predicates:
+                - Path=/api/hotels/**
+
+            - id: RATINGSERVICE
+              uri: lb://RATINGSERVICE
+              predicates:
+                - Path=/ratings/**
+
+  config:
+    import: optional:configserver:http://localhost:8085
+
+server:
+  port: 8084
