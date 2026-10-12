@@ -1,6 +1,10 @@
+
 spring:
   application:
     name: APi-Gateway
+
+  config:
+    import: "configserver:http://localhost:8085"
 
   cloud:
     gateway:
@@ -21,9 +25,6 @@ spring:
               uri: lb://RATINGSERVICE
               predicates:
                 - Path=/ratings/**
-
-  config:
-    import: optional:configserver:http://localhost:8085
 
 server:
   port: 8084

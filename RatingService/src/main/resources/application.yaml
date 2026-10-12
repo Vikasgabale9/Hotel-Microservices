@@ -11,4 +11,4 @@ spring:
       database: microservices
 
   config:
-    import: optional:configserver:http://localhost:8085
+    import: "configserver:http://localhost:8085"

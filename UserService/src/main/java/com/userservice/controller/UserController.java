@@ -1,14 +1,15 @@
+
 package com.userservice.controller;
 
 import com.userservice.entity.User;
 import com.userservice.payload.ApiResponse;
 import com.userservice.service.UserService;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
-import io.github.resilience4j.retry.annotation.Retry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 
 import java.util.Collections;
 import java.util.List;
@@ -17,17 +18,16 @@ import java.util.List;
 @RequestMapping("/api/users")
 public class UserController {
 
+    private static final Logger logger =
+            LoggerFactory.getLogger(UserController.class);
+
     private final UserService userService;
 
     public UserController(UserService userService) {
         this.userService = userService;
     }
 
-
-    // =========================================================
     // CREATE USER
-    // =========================================================
-
     @PostMapping("/create")
     public ResponseEntity<ApiResponse<User>> createUser(
             @RequestBody User user) {
@@ -39,72 +39,50 @@ public class UserController {
                 .data(userService.saveUser(user))
                 .build();
 
-        return ResponseEntity
-                .status(HttpStatus.CREATED)
-                .body(res);
+        return ResponseEntity.status(HttpStatus.CREATED).body(res);
     }
 
-
-    // =========================================================
     // GET ALL USERS
-    // =========================================================
-
     @GetMapping("/getAll")
-    @Retry(
-            name = "ratingHotelService",
-            fallbackMethod = "ratingHotelFallbackGetAll"
-    )
-    @RateLimiter(
-            name = "userRateLimiter",
+    @CircuitBreaker(
+            name = "ratingHotelBreaker",
             fallbackMethod = "ratingHotelFallbackGetAll"
     )
     public ResponseEntity<ApiResponse<List<User>>> getAllUsers() {
-        ApiResponse<List<User>> res = ApiResponse.<List<User>>builder()
-                .message("Data retrieved successfully")
-                .success(true)
-                .status(HttpStatus.OK)
-                .data(userService.getAllUsers())
-                .build();
+
+        ApiResponse<List<User>> res =
+                ApiResponse.<List<User>>builder()
+                        .message("Data retrieved successfully")
+                        .success(true)
+                        .status(HttpStatus.OK)
+                        .data(userService.getAllUsers())
+                        .build();
 
         return ResponseEntity.ok(res);
     }
 
-
-    // =========================================================
     // FALLBACK - GET ALL USERS
-    // =========================================================
-
     public ResponseEntity<ApiResponse<List<User>>> ratingHotelFallbackGetAll(
             Throwable throwable) {
 
-        ApiResponse<List<User>> res = ApiResponse.<List<User>>builder()
-                .message("User service is temporarily unavailable")
-                .success(false)
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
-                .data(Collections.emptyList())
-                .build();
+        logger.error("getAllUsers failed. Cause:", throwable);
 
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
+        ApiResponse<List<User>> res =
+                ApiResponse.<List<User>>builder()
+                        .message("User service is temporarily unavailable")
+                        .success(false)
+                        .status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .data(Collections.emptyList())
+                        .build();
+
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(res);
     }
 
-
-    // =========================================================
     // GET USER BY ID
-    // =========================================================
-
     @GetMapping("/{userId}")
-    @Retry(
-            name = "userByIdRetry",
-            fallbackMethod = "userByIdFallback"
-    )
     @CircuitBreaker(
             name = "userByIdBreaker",
-            fallbackMethod = "userByIdFallback"
-    )
-    @RateLimiter(
-            name = "userByIdRateLimiter",
             fallbackMethod = "userByIdFallback"
     )
     public ResponseEntity<ApiResponse<User>> getUser(
@@ -120,31 +98,27 @@ public class UserController {
         return ResponseEntity.ok(res);
     }
 
-    // =========================================================
     // FALLBACK - GET USER BY ID
-    // =========================================================
-
     public ResponseEntity<ApiResponse<User>> userByIdFallback(
             String userId,
             Throwable throwable) {
 
+        logger.error("getUser failed for userId {}. Cause:",
+                userId, throwable);
+
         ApiResponse<User> res = ApiResponse.<User>builder()
-                .message("User service is temporarily unavailable for user: " + userId)
+                .message("User service is temporarily unavailable for user: "
+                        + userId)
                 .success(false)
                 .status(HttpStatus.SERVICE_UNAVAILABLE)
                 .data(null)
                 .build();
 
-        return ResponseEntity
-                .status(HttpStatus.SERVICE_UNAVAILABLE)
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(res);
     }
 
-
-    // =========================================================
     // DELETE USER
-    // =========================================================
-
     @DeleteMapping("/{userId}")
     public ResponseEntity<ApiResponse<String>> deleteUser(
             @PathVariable String userId) {
@@ -161,11 +135,7 @@ public class UserController {
         return ResponseEntity.ok(res);
     }
 
-
-    // =========================================================
     // UPDATE USER
-    // =========================================================
-
     @PutMapping("/{userId}")
     public ResponseEntity<ApiResponse<User>> updateUser(
             @PathVariable String userId,
