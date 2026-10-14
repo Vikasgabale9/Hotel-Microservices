@@ -7,8 +7,26 @@ spring:
 
   data:
     mongodb:
-      uri: mongodb://localhost:27017
-      database: microservices
+      uri: ${MONGODB_URI:mongodb://localhost:27017}
+      database: ${MONGODB_DATABASE:microservices}
 
   config:
     import: "configserver:http://localhost:8085"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      access: unrestricted
+      show-details: always
+    info:
+      access: unrestricted
+
+info:
+  app:
+    name: Rating Service
+    description: Rating management microservice
+    version: 1.0.0

@@ -8,6 +8,9 @@ import com.userservice.exception.ResourceNotFoundException;
 import com.userservice.external.service.HotelService;
 import com.userservice.external.service.RatingService;
 import com.userservice.repo.UserRepository;
+
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -40,6 +43,9 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @CircuitBreaker(
+            name = "ratingHotelBreaker",
+            fallbackMethod = "ratingHotelFallback")
     public List<User> getAllUsers() {
 
         List<User> users = userRepository.findAll();
@@ -52,6 +58,7 @@ public class UserServiceImpl implements UserService {
             ratings.forEach(rating -> {
                 Hotel hotel =
                         hotelService.getHotel(rating.getHotelId());
+
                 rating.setHotel(hotel);
             });
 
@@ -62,6 +69,9 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    @CircuitBreaker(
+            name = "userByIdBreaker",
+            fallbackMethod = "userByIdFallback")
     public User getUser(String userId) {
 
         User user = userRepository.findById(userId)
@@ -75,6 +85,7 @@ public class UserServiceImpl implements UserService {
         ratings.forEach(rating -> {
             Hotel hotel =
                     hotelService.getHotel(rating.getHotelId());
+
             rating.setHotel(hotel);
         });
 
@@ -103,5 +114,30 @@ public class UserServiceImpl implements UserService {
         existingUser.setAbout(user.getAbout());
 
         return userRepository.save(existingUser);
+    }
+
+    // Fallback for getAllUsers()
+    public List<User> ratingHotelFallback(Exception ex) {
+
+        logger.error(
+                "Failed to retrieve users with ratings and hotel details",
+                ex);
+
+        throw new IllegalStateException(
+                "User data is temporarily unavailable. Please try again later.",
+                ex);
+    }
+
+    // Fallback for getUser(userId)
+    public User userByIdFallback(String userId, Exception ex) {
+
+        logger.error(
+                "Failed to retrieve user {} with ratings and hotel details",
+                userId,
+                ex);
+
+        throw new IllegalStateException(
+                "User data is temporarily unavailable. Please try again later.",
+                ex);
     }
 }

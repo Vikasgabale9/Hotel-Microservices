@@ -1,22 +1,49 @@
 # Hotel Microservices
 
-A Spring Boot microservices project demonstrating service discovery,
-centralized configuration, API Gateway routing, inter-service
-communication, and resilience patterns.
+A Java/Spring Boot microservices project demonstrating service
+discovery, centralized configuration, API Gateway routing, OAuth 2.0
+resource-server security, inter-service communication, and resilience
+patterns.
 
 ## Overview
 
-The system is split into independent services:
+The application is composed of six independently runnable modules:
 
--   **UserService** --- manages user data using MySQL.
--   **HotelService** --- manages hotel data using MySQL.
--   **RatingService** --- manages rating data using MongoDB.
--   **API Gateway** --- provides a single entry point and routes
-    requests to backend services.
--   **Service Registry** --- Eureka server for service registration and
-    discovery.
--   **Config Server** --- loads shared configuration from a
-    GitHub-backed configuration repository.
+  ------------------------------------------------------------------------
+  Module                            Port Responsibility   Data store
+  ---------------- --------------------- ---------------- ----------------
+  UserService                     `8081` User CRUD and    MySQL
+                                         aggregation of   
+                                         each user's      
+                                         ratings and      
+                                         associated hotel 
+                                         details          
+
+  HotelService                    `8082` Hotel CRUD       MySQL
+                                         operations       
+
+  RatingService                   `8083` Create and       MongoDB
+                                         retrieve ratings 
+                                         by user or hotel 
+
+  Gateway                         `8084` Authenticated    ---
+                                         entry point and  
+                                         load-balanced    
+                                         routing          
+
+  ConfigServer                    `8085` Loads shared     Git repository
+                                         configuration    
+                                         from a           
+                                         Git-backed       
+                                         repository       
+
+  Service Registry                `8761` Eureka service   ---
+                                         registration and 
+                                         discovery        
+  ------------------------------------------------------------------------
+
+The MySQL services use the `microservices` database. RatingService uses
+MongoDB's `microservices` database.
 
 ## Architecture
 
@@ -25,73 +52,63 @@ The system is split into independent services:
                            |
                            v
                     API Gateway :8084
-                     /      |      \
-                    v       v       v
-             UserService HotelService RatingService
-                :8081       :8082       :8083
-                    \         |          /
-                     \        |         /
-                      v       v        v
-                     Eureka Service Registry
-                              :8761
+                    /       |       \
+                   v        v        v
+            UserService HotelService RatingService
+               :8081       :8082       :8083
+                   \        |         /
+                    \       |        /
+                     Eureka Registry
+                         :8761
 
-                 Config Server :8085
-                        |
-                        v
-               GitHub Config Repository
+                 ConfigServer :8085
+                         |
+                         v
+              Git-backed configuration
 ```
 
-Services register with Eureka and can discover one another by service
-name. The API Gateway uses load-balanced service URIs (`lb://...`) to
-route requests. The Config Server centralizes shared settings such as
-Eureka configuration.
+-   Services register with Eureka and discover downstream services by
+    service name.
+-   Spring Cloud Gateway uses load-balanced `lb://...` destinations.
+-   ConfigServer loads shared settings from the configured Git
+    repository.
+-   UserService uses OpenFeign to retrieve ratings and hotel details,
+    then aggregates those details into user responses.
+-   UserService forwards the incoming `Authorization: Bearer ...` header
+    on its OpenFeign requests when the incoming request has a bearer
+    token.
 
 ## Technology Stack
 
-  Technology                       Purpose
-  -------------------------------- ------------------------------------
-  Java 25                          Runtime and language
-  Spring Boot 4.1.1                Application framework
-  Spring Cloud 2025.1.3            Microservices integrations
-  Spring Cloud Netflix Eureka      Service registration and discovery
-  Spring Cloud Gateway (WebFlux)   API routing
-  Spring Cloud Config              Centralized configuration
-  Spring Cloud OpenFeign           Declarative HTTP clients
-  Spring Data JPA / Hibernate      Relational persistence
-  MySQL                            User and hotel data
-  Spring Data MongoDB              Rating data
-  Resilience4j                     Circuit breaker and retry patterns
-  Spring Boot Actuator             Health and monitoring endpoints
-  Maven                            Build and dependency management
+-   Java 25
+-   Spring Boot 4.1.1
+-   Spring Cloud 2025.1.3
+-   Spring Cloud Gateway (WebFlux)
+-   Spring Cloud Config
+-   Netflix Eureka
+-   Spring Cloud OpenFeign
+-   Spring Security OAuth 2.0 Resource Server / JWT
+-   Resilience4j
+-   Spring Data JPA / Hibernate
+-   MySQL
+-   Spring Data MongoDB / MongoDB
+-   Spring Boot Actuator
+-   Maven
 
-> Verify that the Spring Boot and Spring Cloud versions used in each
-> module are compatible. This README reflects the versions currently
-> described for this project.
-
-## Service Ports
-
-  Component                     Port Database
-  ------------------------- -------- -----------------------------
-  UserService                 `8081` MySQL --- `microservices`
-  HotelService                `8082` MySQL --- `microservices`
-  RatingService               `8083` MongoDB --- `microservices`
-  API Gateway                 `8084` ---
-  Config Server               `8085` GitHub-backed configuration
-  Eureka Service Registry     `8761` ---
+> Use the Java and framework versions configured in the module POM
+> files. Confirm Spring Boot and Spring Cloud compatibility before
+> upgrading versions.
 
 ## Prerequisites
 
 Install and configure:
 
 -   JDK 25
--   Maven (or use the included Maven Wrapper)
+-   Maven, or the Maven Wrapper included in a module
 -   MySQL Server
 -   MongoDB Server
 -   Git
--   An IDE such as IntelliJ IDEA or Spring Tool Suite (optional)
-
-Make sure the configured database servers are running before starting
-their respective services.
+-   An IDE such as Spring Tool Suite or IntelliJ IDEA (optional)
 
 ## Database Setup
 
@@ -103,30 +120,28 @@ Create the database used by UserService and HotelService:
 CREATE DATABASE microservices;
 ```
 
-Configure the credentials in the relevant service configuration.
-Example:
+The service configuration defaults to:
 
 ``` yaml
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/microservices
+    url: ${DB_URL:jdbc:mysql://localhost:3306/microservices}
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
-
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
 ```
 
-Set `DB_PASSWORD` in your environment, or use your local configuration.
-Do not commit real credentials to Git.
+Set `DB_PASSWORD` in your environment (and `DB_USERNAME` or `DB_URL` if
+needed). Never commit real database credentials.
 
 ### MongoDB
 
-Ensure MongoDB is running locally and the `microservices` database is
-available. RatingService has used this configuration:
+Start MongoDB locally. RatingService uses the `microservices` database
+with the following connection details:
 
 ``` yaml
 spring:
@@ -137,242 +152,347 @@ spring:
 ```
 
 MongoDB can create the database and collections when data is first
-written, depending on the operation and configuration.
+written.
 
-## Configuration Server
+## Centralized Configuration
 
-The services use the Config Server at:
+The services import ConfigServer at:
 
 ``` text
 http://localhost:8085
 ```
 
-A service can import remote configuration with:
+The local import currently used by the modules is:
 
 ``` yaml
 spring:
   config:
-    import: configserver:http://localhost:8085
+    import: "configserver:http://localhost:8085"
 ```
 
-Use `optional:configserver:http://localhost:8085` only if the service
-should be allowed to start when the Config Server is unavailable.
-Without `optional:`, the application can fail during startup if it
-cannot load its remote configuration.
+Because the import is not marked `optional:`, a service may fail to
+start if ConfigServer is unavailable or cannot retrieve the required
+configuration.
 
-The project keeps shared Eureka settings in the GitHub configuration
-repository to avoid duplicating them in each service's local
-`application.yml`. Ensure the repository contains configuration files
-matching the service application names, and that the Config Server
-points to the correct repository.
+The ConfigServer must point to the intended Git-backed configuration
+repository. Make sure the repository contains configuration files
+matching the services' `spring.application.name` values. Review the
+external configuration repository for environment-specific values,
+including the Auth0 issuer and audience configuration; do not put
+secrets in this README.
+
+Configuration repository referenced during development:
+[Hotel-Microservices-Configuration](https://github.com/Vikasgabale9/Hotel-Microservices-Configuration)
+
+## Security
+
+The Gateway, UserService, HotelService, and RatingService each configure
+Spring Security as an OAuth 2.0 resource server:
+
+-   CSRF is disabled for these stateless API configurations.
+-   Form login and HTTP Basic authentication are disabled.
+-   `/actuator/health` is permitted without authentication.
+-   Other requests require a valid bearer token.
+-   JWT validation settings, including the expected issuer and any
+    audience validation, must be supplied and verified in the effective
+    configuration used by each service.
+
+Example request header:
+
+``` http
+Authorization: Bearer <access-token>
+```
+
+UserService's `InterServiceAuthConfig` forwards the incoming bearer
+token on OpenFeign requests when the incoming request includes an
+`Authorization` header beginning with `Bearer`. This allows downstream
+resource servers to validate the same token.
+
+**Important:** This repository's Java security configuration enables JWT
+resource-server support, but the effective issuer/audience values may be
+supplied by ConfigServer. Verify those values in the configuration
+repository and test a valid token, an expired token, and a token with
+the wrong issuer/audience before relying on the setup.
 
 ## API Gateway Routes
 
-The configured Gateway routes are:
+Gateway listens on port `8084` and declares these routes:
 
-  Route ID          Path pattern       Destination
+  Route ID          Path predicate     Destination
   ----------------- ------------------ ----------------------
   `USERSERVICE`     `/api/users/**`    `lb://USERSERVICE`
   `HOTELSERVICE`    `/api/hotels/**`   `lb://HOTELSERVICE`
   `RATINGSERVICE`   `/ratings/**`      `lb://RATINGSERVICE`
 
-Use consistent path casing. If a backend controller uses `/Api/users/**`
-while the Gateway predicate uses `/api/users/**`, align the paths or
-configure an appropriate route rewrite.
+Use the path capitalization shown below. The UserController mapping is
+`/api/users`, so `/api/users/...` is the expected path.
 
-## Known UserService Endpoints
+## API Reference
 
-The following endpoints are based on the current UserController
-implementation:
+All business API requests require a valid bearer token unless the
+security configuration is deliberately changed. Examples below use the
+Gateway address; replace `<access-token>` with a valid token.
 
-  Method     Path                    Purpose
-  ---------- ----------------------- -----------------------
-  `POST`     `/Api/users/create`     Create a user
-  `GET`      `/Api/users/getAll`     Retrieve all users
-  `GET`      `/Api/users/{userId}`   Retrieve a user by ID
-  `PUT`      `/Api/users/{userId}`   Update a user
-  `DELETE`   `/Api/users/{userId}`   Delete a user
+### UserService
 
-Example request to get all users directly:
+Base path: `/api/users`
 
-``` http
-GET http://localhost:8081/Api/users/getAll
+  -----------------------------------------------------------------------
+  Method                  Path                    Purpose
+  ----------------------- ----------------------- -----------------------
+  `POST`                  `/api/users/create`     Create a user
+
+  `GET`                   `/api/users/getAll`     Retrieve users with
+                                                  their ratings and hotel
+                                                  details
+
+  `GET`                   `/api/users/{userId}`   Retrieve a user with
+                                                  ratings and hotel
+                                                  details
+
+  `PUT`                   `/api/users/{userId}`   Update a user
+
+  `DELETE`                `/api/users/{userId}`   Delete a user
+  -----------------------------------------------------------------------
+
+Example:
+
+``` bash
+curl -H "Authorization: Bearer <access-token>" \
+  http://localhost:8084/api/users/getAll
 ```
 
-Example request through the Gateway, subject to the configured route
-path:
+Create a user:
 
-``` http
-GET http://localhost:8084/api/users/getAll
+``` bash
+curl -X POST http://localhost:8084/api/users/create \
+  -H "Authorization: Bearer <access-token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"Example User","email":"example@example.com","about":"Sample profile"}'
 ```
 
-The Gateway and controller path casing must match. HotelService and
-RatingService endpoint paths should be documented here after confirming
-their controller mappings.
+The create endpoint returns an `ApiResponse` wrapper. Update and delete
+endpoints also use the service's `ApiResponse` format.
 
-## Resilience: Circuit Breaker and Retry
+### HotelService
 
-UserService includes Resilience4j integration for learning and testing
-resilience patterns.
+Base path: `/api/hotels`
 
--   **Circuit breaker**: tracks failures and can temporarily stop calls
-    when the configured failure threshold is reached.
--   **Retry**: repeats a failed operation up to the configured maximum
-    number of attempts.
--   **Actuator**: exposes health information.
+  Method     Path                 Purpose
+  ---------- -------------------- ------------------------
+  `POST`     `/api/hotels`        Create a hotel
+  `GET`      `/api/hotels`        Retrieve all hotels
+  `GET`      `/api/hotels/{id}`   Retrieve a hotel by ID
+  `PUT`      `/api/hotels/{id}`   Update a hotel
+  `DELETE`   `/api/hotels/{id}`   Delete a hotel
 
-Example configuration shape:
+Example:
 
-``` yaml
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health
-  endpoint:
-    health:
-      show-details: always
-  health:
-    circuitbreakers:
-      enabled: true
-
-resilience4j:
-  circuitbreaker:
-    instances:
-      ratingHotelBreaker:
-        registerHealthIndicator: true
-        failureRateThreshold: 50
-        minimumNumberOfCalls: 5
-        waitDurationInOpenState: 6s
-        slidingWindowSize: 10
-        slidingWindowType: COUNT_BASED
-
-  retry:
-    instances:
-      ratingHotelBreaker:
-        max-attempts: 3
-        wait-duration: 5s
+``` bash
+curl -H "Authorization: Bearer <access-token>" \
+  http://localhost:8084/api/hotels
 ```
 
-The corresponding Java methods must use matching `@CircuitBreaker`
-and/or `@Retry` instance names. YAML alone does not apply these patterns
-to a method.
+### RatingService
 
-Check health at:
+Base path: `/ratings`
+
+  Method   Path                         Purpose
+  -------- ---------------------------- ------------------------------
+  `POST`   `/ratings`                   Create a rating
+  `GET`    `/ratings`                   Retrieve all ratings
+  `GET`    `/ratings/user/{userId}`     Retrieve ratings for a user
+  `GET`    `/ratings/hotel/{hotelId}`   Retrieve ratings for a hotel
+
+Example:
+
+``` bash
+curl -H "Authorization: Bearer <access-token>" \
+  http://localhost:8084/ratings/user/USR001
+```
+
+Use the request body fields defined by the `Hotel` and `Rating` model
+classes when creating or updating records.
+
+## Resilience4j
+
+UserService configures two circuit-breaker instances:
+
+-   `ratingHotelBreaker` --- used by `UserController.getAllUsers()` and
+    `UserServiceImpl.getAllUsers()`.
+-   `userByIdBreaker` --- used by `UserController.getUser()` and
+    `UserServiceImpl.getUser()`.
+
+The UserController fallback methods return a `503 Service Unavailable`
+response. The service-layer fallback methods log the failure and throw
+an `IllegalStateException`.
+
+The UserService YAML also defines Retry and RateLimiter instances. In
+the inspected Java source, corresponding `@Retry` and `@RateLimiter`
+annotations were not found. Therefore, those YAML entries should be
+treated as configuration definitions, not as proof that Retry or
+RateLimiter is currently applied to methods.
+
+The circuit breakers are useful around the user aggregation flow because
+it calls downstream HotelService and RatingService endpoints. Test the
+fallback behavior by making a downstream service unavailable and then
+calling the affected UserService endpoint.
+
+## Actuator and Health Checks
+
+The project includes Actuator health endpoints. UserService exposes
+`health`; HotelService and RatingService expose `health` and `info` in
+their local configuration. The Gateway security configuration permits
+`/actuator/health`.
+
+Check endpoints locally:
 
 ``` text
 http://localhost:8081/actuator/health
+http://localhost:8082/actuator/health
+http://localhost:8083/actuator/health
 ```
 
-**Design note:** Put CircuitBreaker and Retry around calls that can fail
-independently, especially remote Feign calls. Applying them to a
-controller that only accesses its own database does not protect a
-separate downstream microservice. Retry only transient failures; broad
-retries can waste time or repeat operations unnecessarily.
+Only expose detailed health information in trusted development
+environments. Do not publicly expose detailed Actuator data in
+production without an appropriate security policy.
+
+Eureka dashboard:
+
+``` text
+http://localhost:8761
+```
 
 ## Running the Project
 
-Start the services in this order so that dependencies are available:
+Start the dependencies and services in this order:
 
 1.  Start MySQL and MongoDB.
-2.  Start the Eureka Service Registry on port `8761`.
-3.  Start the Config Server on port `8085`.
+2.  Start the Service Registry on port `8761`.
+3.  Start ConfigServer on port `8085` and verify it can read the Git
+    configuration repository.
 4.  Start HotelService on port `8082`.
 5.  Start RatingService on port `8083`.
 6.  Start UserService on port `8081`.
-7.  Start API Gateway on port `8084`.
+7.  Start Gateway on port `8084`.
 
-The services may start in a different order if they are configured to
-tolerate dependencies being temporarily unavailable, but this order
-makes initial troubleshooting easier.
-
-From a module directory, use the Maven Wrapper on Windows:
+From a module directory on Windows, build and run with the Maven
+Wrapper:
 
 ``` powershell
 .\mvnw.cmd clean package
 .\mvnw.cmd spring-boot:run
 ```
 
-Or open each module in your IDE and run its `*Application` main class.
+If the wrapper is not present in that module, use an installed Maven
+version:
+
+``` bash
+mvn clean package
+mvn spring-boot:run
+```
+
+Run each module's main application class from your IDE if preferred.
 
 ## Verification Checklist
 
--   [ ] MySQL is reachable and the `microservices` database exists.
--   [ ] MongoDB is running on port `27017`.
+-   [ ] MySQL is running and the `microservices` database exists.
+-   [ ] MongoDB is running on `localhost:27017`.
 -   [ ] Eureka dashboard opens at `http://localhost:8761`.
--   [ ] Config Server starts on port `8085` and can read the GitHub
-    config repository.
--   [ ] All services register with Eureka.
--   [ ] API Gateway starts on port `8084`.
--   [ ] UserService endpoints respond when called directly.
--   [ ] Gateway paths match backend controller mappings.
--   [ ] Actuator health is reachable at `/actuator/health`.
--   [ ] CircuitBreaker and Retry names match the annotations in Java
-    code.
+-   [ ] ConfigServer starts on port `8085` and reads the expected Git
+    repository.
+-   [ ] All three business services register with Eureka.
+-   [ ] Gateway starts on port `8084`.
+-   [ ] A valid access token succeeds on protected endpoints.
+-   [ ] Missing, expired, or invalid tokens are rejected.
+-   [ ] Auth0 issuer and audience settings are correct in effective
+    configuration.
+-   [ ] Gateway routes match controller paths and return expected
+    responses.
+-   [ ] UserService can aggregate rating and hotel data through
+    OpenFeign.
+-   [ ] Circuit-breaker fallback behavior is tested when downstream
+    calls fail.
+-   [ ] Actuator endpoints expose only the intended information.
 
 ## Troubleshooting
 
 ### Service does not register with Eureka
 
 -   Confirm Eureka is running at `http://localhost:8761`.
--   Check the service's effective configuration from Config Server.
--   Verify `spring.application.name` matches the intended service
-    configuration.
--   Check application logs for connection or configuration errors.
+-   Check each service's effective configuration and
+    `spring.application.name`.
+-   Inspect application logs for connection and registration errors.
 
-### Config Server connection fails
+### ConfigServer connection fails
 
--   Confirm Config Server is running on port `8085`.
--   Verify the Git repository URL and configuration filenames.
--   Decide whether `spring.config.import` should be mandatory or use the
-    `optional:` prefix.
+-   Confirm ConfigServer is running on port `8085`.
+-   Verify the Git repository URL, access permissions, and configuration
+    filenames.
+-   Confirm the service's `spring.config.import` value is correct.
 
 ### Gateway returns 404
 
--   Confirm the requested path matches the Gateway predicate.
--   Check capitalization differences between Gateway routes and
-    controller mappings.
+-   Confirm the requested path matches a Gateway predicate.
+-   Check controller mappings and path capitalization.
 -   Confirm the target service is registered with Eureka.
+
+### API returns 401 Unauthorized
+
+-   Include `Authorization: Bearer <access-token>`.
+-   Verify token expiration and signature.
+-   Check the configured issuer and audience against the token and Auth0
+    API settings.
+
+### API returns 503 or aggregation fails
+
+-   Check that HotelService and RatingService are running and
+    registered.
+-   Call downstream endpoints directly with a valid token.
+-   Inspect UserService logs for OpenFeign errors and circuit-breaker
+    fallback messages.
 
 ### Database connection fails
 
 -   Confirm the database server is running.
--   Check the URL, database name, credentials, and port.
--   Keep credentials out of version control.
+-   Check the URL, database name, username, password, and port.
+-   Keep secrets out of source control.
 
-### CircuitBreaker health information is missing
+### Circuit-breaker health information is missing
 
--   Confirm Actuator is included.
--   Confirm the health endpoint is exposed.
--   Set `registerHealthIndicator: true` for the relevant CircuitBreaker
-    instance.
--   Confirm the configured instance name matches the annotation name.
+-   Confirm Actuator is included and the health endpoint is exposed.
+-   Confirm `registerHealthIndicator: true` is configured for the
+    relevant instance.
+-   Ensure the instance name matches the `@CircuitBreaker` annotation.
 
-## Security Notes
+## Security and Production Notes
 
--   Do not commit database passwords, API keys, tokens, or other
-    secrets.
--   Prefer environment variables or a secure secrets-management
-    solution.
--   Avoid exposing detailed Actuator health information publicly in
-    production.
--   Add authentication and authorization before exposing sensitive
-    endpoints.
+-   Never commit database passwords, access tokens, Auth0 secrets, or
+    other credentials.
+-   Use environment variables or a dedicated secrets manager for
+    sensitive configuration.
+-   Do not expose detailed Actuator health information publicly.
+-   Configure and verify JWT issuer/audience validation for every
+    resource server.
+-   Use appropriate timeouts and resilience policies for remote calls.
+-   Add integration tests for authentication, Gateway routing, database
+    access, and downstream failures before production deployment.
 
-## Current Scope and Future Improvements
+## Future Improvements
 
-Potential improvements include:
-
--   Add authentication and role-based authorization.
--   Add request validation and consistent error responses.
--   Add integration tests for each service and Gateway route.
+-   Apply Retry and RateLimiter annotations to selected methods only
+    after defining appropriate behavior and testing their interaction
+    with circuit breakers.
+-   Add request validation and consistent error responses across
+    services.
+-   Expand automated integration and security tests.
 -   Add centralized logging and distributed tracing.
 -   Add Docker Compose for local infrastructure.
--   Document confirmed HotelService and RatingService API endpoints.
--   Add production-ready timeout, retry, and circuit-breaker policies
-    for Feign calls.
+-   Document any additional endpoints when they are added to the
+    controllers.
 
 ## License
 
-Add the license used by this repository before publishing or
-distributing the project.
+No license file was confirmed in the supplied project snapshot. Add a
+`LICENSE` file and update this section if you intend to distribute the
+project publicly.
